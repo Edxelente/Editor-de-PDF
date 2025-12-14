@@ -47,6 +47,7 @@ interface PathAttachment {
 
 function App() {
     const [pdfFile, setPdfFile] = useState<ArrayBuffer | null>(null);
+    const [pdfUrl, setPdfUrl] = useState<string | null>(null);
     const [numPages, setNumPages] = useState<number | null>(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [scale, setScale] = useState(1.0);
@@ -127,15 +128,33 @@ function App() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [undo, redo]);
 
+    // Revoke Object URL when component unmounts or pdfUrl changes
+    useEffect(() => {
+        return () => {
+            if (pdfUrl) {
+                URL.revokeObjectURL(pdfUrl);
+            }
+        };
+    }, [pdfUrl]);
+
     // Handling upload
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             const arrayBuffer = await file.arrayBuffer();
             setPdfFile(arrayBuffer);
+
+            if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+            const url = URL.createObjectURL(file);
+            setPdfUrl(url);
+
             setNumPages(null);
             setPageNumber(1);
-            setDocState({ annotations: [], images: [], paths: [] });
+            setDocState({
+                annotations: [],
+                images: [],
+                paths: []
+            });
             setHistory({ past: [], future: [] });
         }
     };
@@ -422,7 +441,7 @@ function App() {
                             onClick={handlePageClick}
                         >
                             <Document
-                                file={pdfFile}
+                                file={pdfUrl}
                                 onLoadSuccess={onDocumentLoadSuccess}
                                 loading={
                                     <div className="flex items-center gap-3 p-6 bg-white rounded-xl shadow-lg">
