@@ -51,6 +51,7 @@ function App() {
     const [numPages, setNumPages] = useState<number | null>(null);
     const [pageNumber, setPageNumber] = useState(1);
     const [scale, setScale] = useState(1.0);
+    const [pageDimensions, setPageDimensions] = useState<{ width: number, height: number } | null>(null);
 
     const [docState, setDocState] = useState({
         annotations: [] as Annotation[],
@@ -159,8 +160,22 @@ function App() {
         }
     };
 
-    const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+    const onDocumentLoadSuccess = async ({ numPages }: { numPages: number }) => {
         setNumPages(numPages);
+
+        // Get first page dimensions from the actual PDF
+        if (pdfFile) {
+            try {
+                const pdfDoc = await PDFDocument.load(pdfFile);
+                const firstPage = pdfDoc.getPages()[0];
+                const { width, height } = firstPage.getSize();
+                setPageDimensions({ width, height });
+            } catch (e) {
+                console.error('Failed to get page dimensions:', e);
+                // Fallback to common dimensions
+                setPageDimensions({ width: 612, height: 792 }); // US Letter
+            }
+        }
     };
 
     const handleAddText = () => {
@@ -168,16 +183,21 @@ function App() {
     };
 
     const handlePageClick = (e: React.MouseEvent) => {
-        if (currentTool === 'text') {
+        if (currentTool === 'text' && pageDimensions) {
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            const x = (e.clientX - rect.left) / scale;
-            const y = (e.clientY - rect.top) / scale;
+            // Screen coordinates relative to the rendered page
+            const screenX = e.clientX - rect.left;
+            const screenY = e.clientY - rect.top;
+
+            // Convert to PDF coordinates
+            const pdfX = (screenX / scale);
+            const pdfY = (screenY / scale);
 
             const newAnnotation: Annotation = {
                 id: crypto.randomUUID(),
                 text: 'Texto',
-                x: x,
-                y: y,
+                x: pdfX,
+                y: pdfY,
                 page: pageNumber,
                 color: '#000000',
                 fontSize: 16
@@ -209,14 +229,20 @@ function App() {
         }
     };
 
-    const handleAddPath = (pathData: { path: string, color: string, width: number }) => {
+    const handleAddPath = (path: { path: string, color: string, width: number }) => {
+        if (!pageDimensions) return;
+
+        const newPath: PathAttachment = {
+            id: crypto.randomUUID(),
+            path: path.path,
+            color: path.color,
+            width: path.width,
+            page: pageNumber
+        };
+
         pushState({
             ...docState,
-            paths: [...docState.paths, {
-                id: crypto.randomUUID(),
-                ...pathData,
-                page: pageNumber
-            }]
+            paths: [...docState.paths, newPath]
         });
     };
 
@@ -285,12 +311,13 @@ function App() {
                 if (ann.page > pages.length) continue;
                 const page = pages[ann.page - 1];
                 const { height } = page.getSize();
+                // Coordinates are stored in rendered page space, need to convert to PDF space
                 const pdfX = ann.x;
-                const pdfY = height - ann.y - (ann.fontSize || 16) + 4; // Adjustment
+                const pdfY = height - ann.y;
 
                 page.drawText(ann.text, {
                     x: pdfX,
-                    y: pdfY,
+                    y: pdfY - (ann.fontSize || 16), // Subtract font size for baseline
                     size: ann.fontSize || 16,
                     color: hexToRgb(ann.color || '#000000'),
                 });
@@ -311,6 +338,7 @@ function App() {
                     pdfImage = await pdfDoc.embedJpg(imageBytes);
                 }
 
+                // Image coordinates are in rendered page space
                 page.drawImage(pdfImage, {
                     x: img.x,
                     y: pageHeight - img.y - img.height,
@@ -504,26 +532,27 @@ function App() {
                             </div>
 
                             {/* Render existing paths always (ON TOP of annotations to allow whiteout) */}
-                            <div className="absolute inset-0 pointer-events-none z-30">
-                                <DrawingCanvas
-                                    width={1000} // This should ideally be dynamic based on page size
-                                    height={1400}
-                                    scale={scale}
-                                    paths={docState.paths}
-                                    isDrawing={false}
-                                    isEraser={currentTool === 'eraser'}
-                                    onAddPath={() => { }}
-                                    // onDeletePath={deletePath} // Disabled precise deletion for whiteout eraser based on user req
-                                    page={pageNumber}
-                                />
-                            </div>
+                            {pageDimensions && (
+                                <div className="absolute inset-0 pointer-events-none z-30">
+                                    <DrawingCanvas
+                                        width={pageDimensions.width}
+                                        height={pageDimensions.height}
+                                        scale={scale}
+                                        paths={docState.paths}
+                                        isDrawing={false}
+                                        isEraser={currentTool === 'eraser'}
+                                        onAddPath={() => { }}
+                                        page={pageNumber}
+                                    />
+                                </div>
+                            )}
 
                             {/* Canvas for Drawing (Active) */}
-                            {(currentTool === 'draw' || currentTool === 'eraser') && (
+                            {(currentTool === 'draw' || currentTool === 'eraser') && pageDimensions && (
                                 <div className="absolute inset-0 z-40 cursor-crosshair">
                                     <DrawingCanvas
-                                        width={1000} // This should ideally be dynamic
-                                        height={1400} // This should ideally be dynamic
+                                        width={pageDimensions.width}
+                                        height={pageDimensions.height}
                                         scale={scale}
                                         paths={docState.paths}
                                         isDrawing={currentTool === 'draw' || currentTool === 'eraser'}
