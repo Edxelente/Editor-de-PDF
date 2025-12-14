@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import clsx from 'clsx';
 import { X } from 'lucide-react';
 
