@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { pdfjs, Document, Page } from 'react-pdf';
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ImageAnnotation } from './components/ImageAnnotation';
@@ -25,6 +25,9 @@ interface Annotation {
     page: number;
     color?: string;
     fontSize?: number;
+    font?: string;
+    bold?: boolean;
+    underline?: boolean;
 }
 
 interface ImageAttachment {
@@ -52,6 +55,7 @@ function App() {
     const [pageNumber, setPageNumber] = useState(1);
     const [scale, setScale] = useState(1.0);
     const [pageDimensions, setPageDimensions] = useState<{ width: number, height: number } | null>(null);
+    const [renderedPageSize, setRenderedPageSize] = useState<{ width: number, height: number } | null>(null);
 
     const [docState, setDocState] = useState({
         annotations: [] as Annotation[],
@@ -183,15 +187,20 @@ function App() {
     };
 
     const handlePageClick = (e: React.MouseEvent) => {
-        if (currentTool === 'text' && pageDimensions) {
+        if (currentTool === 'text' && pageDimensions && renderedPageSize) {
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
             // Screen coordinates relative to the rendered page
             const screenX = e.clientX - rect.left;
             const screenY = e.clientY - rect.top;
 
-            // Convert to PDF coordinates
-            const pdfX = (screenX / scale);
-            const pdfY = (screenY / scale);
+            // Convert screen coordinates to PDF coordinates
+            // renderedPageSize is the actual pixel size of the rendered page
+            // pageDimensions is the PDF page size in points
+            const ratioX = pageDimensions.width / (renderedPageSize.width);
+            const ratioY = pageDimensions.height / (renderedPageSize.height);
+
+            const pdfX = screenX * ratioX;
+            const pdfY = screenY * ratioY;
 
             const newAnnotation: Annotation = {
                 id: crypto.randomUUID(),
@@ -200,7 +209,8 @@ function App() {
                 y: pdfY,
                 page: pageNumber,
                 color: '#000000',
-                fontSize: 16
+                fontSize: 16,
+                font: 'Helvetica'
             };
             pushState({
                 ...docState,
@@ -311,16 +321,43 @@ function App() {
                 if (ann.page > pages.length) continue;
                 const page = pages[ann.page - 1];
                 const { height } = page.getSize();
-                // Coordinates are stored in rendered page space, need to convert to PDF space
+
+                // Get the appropriate font
+                let font;
+                const fontBase = ann.font || 'Helvetica';
+                const useBold = ann.bold;
+
+                if (fontBase === 'Times-Roman') {
+                    font = await pdfDoc.embedFont(useBold ? StandardFonts.TimesRomanBold : StandardFonts.TimesRoman);
+                } else if (fontBase === 'Courier') {
+                    font = await pdfDoc.embedFont(useBold ? StandardFonts.CourierBold : StandardFonts.Courier);
+                } else {
+                    font = await pdfDoc.embedFont(useBold ? StandardFonts.HelveticaBold : StandardFonts.Helvetica);
+                }
+
+                // Coordinates are stored in PDF page space
                 const pdfX = ann.x;
                 const pdfY = height - ann.y;
+                const fontSize = ann.fontSize || 16;
 
                 page.drawText(ann.text, {
                     x: pdfX,
-                    y: pdfY - (ann.fontSize || 16), // Subtract font size for baseline
-                    size: ann.fontSize || 16,
+                    y: pdfY - fontSize, // Subtract font size for baseline
+                    size: fontSize,
                     color: hexToRgb(ann.color || '#000000'),
+                    font: font
                 });
+
+                // Draw underline if needed
+                if (ann.underline) {
+                    const textWidth = font.widthOfTextAtSize(ann.text, fontSize);
+                    page.drawLine({
+                        start: { x: pdfX, y: pdfY - fontSize - 2 },
+                        end: { x: pdfX + textWidth, y: pdfY - fontSize - 2 },
+                        thickness: Math.max(1, fontSize / 16),
+                        color: hexToRgb(ann.color || '#000000')
+                    });
+                }
             }
 
             // Process Images
@@ -427,8 +464,8 @@ function App() {
                 canRedo={history.future.length > 0}
                 brushColor={brushColor}
                 setBrushColor={setBrushColor}
-                brushWidth={brushWidth}
                 setBrushWidth={setBrushWidth}
+                brushWidth={brushWidth}
             />
 
             <div className="flex-1 flex flex-col min-w-0 h-full">
@@ -489,6 +526,10 @@ function App() {
                                     scale={scale}
                                     renderTextLayer={false}
                                     renderAnnotationLayer={false}
+                                    onLoadSuccess={(page) => {
+                                        const { width, height } = page;
+                                        setRenderedPageSize({ width, height });
+                                    }}
                                     className="bg-white"
                                 />
                             </Document>
@@ -636,8 +677,11 @@ function DraggableAnnotation({ annotation, scale, onUpdate, onDelete, isEraserAc
                     !isEraserActive && "focus:border-blue-500 focus:bg-white/80"
                 )}
                 style={{
-                    fontSize: `${(annotation.fontSize || 16) * scale}px`, // Scale font size
+                    fontSize: `${(annotation.fontSize || 16) * scale}px`,
                     color: annotation.color || '#000000',
+                    fontFamily: annotation.font || 'Helvetica',
+                    fontWeight: annotation.bold ? 'bold' : 'normal',
+                    textDecoration: annotation.underline ? 'underline' : 'none',
                     minWidth: `${100 * scale}px`,
                     width: `${Math.max(100, annotation.text.length * (annotation.fontSize || 16) * 0.6) * scale}px`,
                     height: `${(annotation.fontSize || 16) * 1.5 * scale}px`,
@@ -648,6 +692,35 @@ function DraggableAnnotation({ annotation, scale, onUpdate, onDelete, isEraserAc
             {/* Controls */}
             {!isEraserActive && (
                 <div className="controls absolute -top-8 left-1/2 -translate-x-1/2 hidden group-hover:flex items-center gap-1 bg-white shadow-md rounded-lg p-1 border border-gray-200 z-50">
+                    <select
+                        value={annotation.font || 'Helvetica'}
+                        onChange={(e) => onUpdate(annotation.id, { font: e.target.value })}
+                        className="text-xs border border-gray-300 rounded px-1 h-6"
+                    >
+                        <option value="Helvetica">Helvetica</option>
+                        <option value="Times-Roman">Times</option>
+                        <option value="Courier">Courier</option>
+                    </select>
+                    <button
+                        onClick={() => onUpdate(annotation.id, { bold: !annotation.bold })}
+                        className={clsx(
+                            "px-2 h-6 text-xs border border-gray-300 rounded font-bold",
+                            annotation.bold ? "bg-blue-500 text-white" : "bg-white"
+                        )}
+                        title="Negrita"
+                    >
+                        B
+                    </button>
+                    <button
+                        onClick={() => onUpdate(annotation.id, { underline: !annotation.underline })}
+                        className={clsx(
+                            "px-2 h-6 text-xs border border-gray-300 rounded underline",
+                            annotation.underline ? "bg-blue-500 text-white" : "bg-white"
+                        )}
+                        title="Subrayado"
+                    >
+                        U
+                    </button>
                     <input
                         type="color"
                         value={annotation.color || '#000000'}
