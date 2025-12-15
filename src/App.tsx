@@ -336,16 +336,25 @@ function App() {
                 // Convert to PDF coordinates (Y=0 at bottom)
                 const pdfX = ann.x * ratioX;
                 // For Y: need to flip using the RENDERED page height, not PDF height
-                const renderedY = ann.y; // This is in unscaled rendered space
+                const renderedY = ann.y;
                 const pdfY = height - (renderedY * ratioY);
                 const fontSize = ann.fontSize || 16;
-                // Adjust for baseline: Most fonts have ascender around 0.75-0.8 of font size
-                // Using 0.75 moves the text UP slightly compared to using 1.0
-                const yOffset = fontSize * 0.75;
+
+                // Calculate dimensions for centering
+                const textWidth = font.widthOfTextAtSize(ann.text, fontSize);
+
+                // Horizontal: Center text (subtract half width from center x)
+                const drawX = pdfX - (textWidth / 2);
+
+                // Vertical: Adjust for baseline
+                // CSS centers the text box. We want the text visually centered at pdfY.
+                // A good approximation for baseline offset from center is ~1/3 of fontSize for standard fonts
+                // (Cap height is ~0.7em, so center is ~0.35em above baseline)
+                const drawY = pdfY - (fontSize * 0.35);
 
                 page.drawText(ann.text, {
-                    x: pdfX,
-                    y: pdfY - yOffset,
+                    x: drawX,
+                    y: drawY,
                     size: fontSize,
                     color: hexToRgb(ann.color || '#000000'),
                     font: font
@@ -353,10 +362,9 @@ function App() {
 
                 // Draw underline if needed
                 if (ann.underline) {
-                    const textWidth = font.widthOfTextAtSize(ann.text, fontSize);
                     page.drawLine({
-                        start: { x: pdfX, y: pdfY - yOffset - 2 },
-                        end: { x: pdfX + textWidth, y: pdfY - yOffset - 2 },
+                        start: { x: drawX, y: drawY - 2 },
+                        end: { x: drawX + textWidth, y: drawY - 2 },
                         thickness: Math.max(1, fontSize / 16),
                         color: hexToRgb(ann.color || '#000000')
                     });
