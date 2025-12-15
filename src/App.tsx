@@ -333,23 +333,19 @@ function App() {
                 const ratioX = pageDimensions.width / renderedPageSize.width;
                 const ratioY = pageDimensions.height / renderedPageSize.height;
 
-                //  Debug logging
-                console.log('Annotation:', ann.text);
-                console.log('Stored coords:', ann.x, ann.y);
-                console.log('RenderedPageSize:', renderedPageSize);
-                console.log('PageDimensions:', pageDimensions);
-                console.log('Ratios:', ratioX, ratioY);
-
                 // Convert to PDF coordinates (Y=0 at bottom)
                 const pdfX = ann.x * ratioX;
                 // For Y: need to flip using the RENDERED page height, not PDF height
                 const renderedY = ann.y; // This is in unscaled rendered space
                 const pdfY = height - (renderedY * ratioY);
                 const fontSize = ann.fontSize || 16;
+                // Adjust for baseline: Most fonts have ascender around 0.75-0.8 of font size
+                // Using 0.75 moves the text UP slightly compared to using 1.0
+                const yOffset = fontSize * 0.75;
 
                 page.drawText(ann.text, {
                     x: pdfX,
-                    y: pdfY - fontSize, // Subtract font size for baseline
+                    y: pdfY - yOffset,
                     size: fontSize,
                     color: hexToRgb(ann.color || '#000000'),
                     font: font
@@ -359,8 +355,8 @@ function App() {
                 if (ann.underline) {
                     const textWidth = font.widthOfTextAtSize(ann.text, fontSize);
                     page.drawLine({
-                        start: { x: pdfX, y: pdfY - fontSize - 2 },
-                        end: { x: pdfX + textWidth, y: pdfY - fontSize - 2 },
+                        start: { x: pdfX, y: pdfY - yOffset - 2 },
+                        end: { x: pdfX + textWidth, y: pdfY - yOffset - 2 },
                         thickness: Math.max(1, fontSize / 16),
                         color: hexToRgb(ann.color || '#000000')
                     });
