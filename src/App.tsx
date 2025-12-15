@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { pdfjs, Document, Page } from 'react-pdf';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Sidebar } from './components/Sidebar';
@@ -28,6 +28,7 @@ interface Annotation {
     font?: string;
     bold?: boolean;
     underline?: boolean;
+    align?: 'left' | 'center' | 'right';
 }
 
 interface ImageAttachment {
@@ -340,17 +341,32 @@ function App() {
                 const pdfY = height - (renderedY * ratioY);
                 const fontSize = ann.fontSize || 16;
 
-                // Calculate dimensions for centering
+                // Calculate dimensions for centering/alignment
                 const textWidth = font.widthOfTextAtSize(ann.text, fontSize);
 
-                // Horizontal: Center text (subtract half width from center x)
-                const drawX = pdfX - (textWidth / 2);
+                // Calculate Box Width (matching UI logic)
+                // UI Width = Math.max(100, textLen * fontSize * 0.6)
+                const boxWidthUnscaled = Math.max(100, ann.text.length * fontSize * 0.6);
+                const pdfBoxWidth = boxWidthUnscaled * ratioX;
+                const pdfBoxCenterX = pdfX; // ann.x is center
+                const pdfBoxLeft = pdfBoxCenterX - (pdfBoxWidth / 2);
+
+                // Horizontal Alignment
+                let drawX = pdfBoxCenterX - (textWidth / 2); // Default Center
+                if (ann.align === 'left') {
+                    drawX = pdfBoxLeft;
+                } else if (ann.align === 'right') {
+                    drawX = pdfBoxLeft + pdfBoxWidth - textWidth;
+                }
 
                 // Vertical: Adjust for baseline
-                // CSS centers the text box. We want the text visually centered at pdfY.
-                // A good approximation for baseline offset from center is ~1/3 of fontSize for standard fonts
-                // (Cap height is ~0.7em, so center is ~0.35em above baseline)
-                const drawY = pdfY - (fontSize * 0.35);
+                // The browser renders the textarea with line-height: 1 in a box of height 1.5em.
+                // The text sits at the top of the box.
+                // Box Top relative to center is +0.75em.
+                // Text Top (Ascender) relative to baseline is approx +0.9em (Helvetica).
+                // So Baseline = Box Top - Ascender = (+0.75 - 0.9) = -0.15em from Center.
+                // We use -0.12 to account for visual cap-height vs ascender differences.
+                const drawY = pdfY - (fontSize * 0.12);
 
                 page.drawText(ann.text, {
                     x: drawX,
@@ -719,7 +735,7 @@ function DraggableAnnotation({ annotation, scale, onUpdate, onDelete, isEraserAc
                 className={clsx(
                     "bg-transparent border border-transparent resize-none overflow-hidden outline-none",
                     !isEraserActive && "group-hover:border-blue-400 group-hover:bg-blue-50/20",
-                    "rounded text-center font-sans",
+                    "rounded font-sans",
                     !isEraserActive && "focus:border-blue-500 focus:bg-white/80"
                 )}
                 style={{
@@ -728,6 +744,7 @@ function DraggableAnnotation({ annotation, scale, onUpdate, onDelete, isEraserAc
                     fontFamily: annotation.font || 'Helvetica',
                     fontWeight: annotation.bold ? 'bold' : 'normal',
                     textDecoration: annotation.underline ? 'underline' : 'none',
+                    textAlign: annotation.align || 'center',
                     minWidth: `${100 * scale}px`,
                     width: `${Math.max(100, annotation.text.length * (annotation.fontSize || 16) * 0.6) * scale}px`,
                     height: `${(annotation.fontSize || 16) * 1.5 * scale}px`,
@@ -748,6 +765,31 @@ function DraggableAnnotation({ annotation, scale, onUpdate, onDelete, isEraserAc
                         <option value="Times-Roman">Times</option>
                         <option value="Courier">Courier</option>
                     </select>
+
+                    <div className="flex border border-gray-300 rounded overflow-hidden">
+                        <button
+                            onClick={() => onUpdate(annotation.id, { align: 'left' })}
+                            className={clsx("p-1 hover:bg-gray-100", (!annotation.align || annotation.align === 'left') && "bg-blue-100 text-blue-600")}
+                            title="Izquierda"
+                        >
+                            <AlignLeft size={14} />
+                        </button>
+                        <button
+                            onClick={() => onUpdate(annotation.id, { align: 'center' })}
+                            className={clsx("p-1 hover:bg-gray-100", annotation.align === 'center' && "bg-blue-100 text-blue-600")}
+                            title="Centro"
+                        >
+                            <AlignCenter size={14} />
+                        </button>
+                        <button
+                            onClick={() => onUpdate(annotation.id, { align: 'right' })}
+                            className={clsx("p-1 hover:bg-gray-100", annotation.align === 'right' && "bg-blue-100 text-blue-600")}
+                            title="Derecha"
+                        >
+                            <AlignRight size={14} />
+                        </button>
+                    </div>
+
                     <button
                         onClick={() => onUpdate(annotation.id, { bold: !annotation.bold })}
                         className={clsx(
