@@ -313,6 +313,10 @@ function App() {
                 if (ann.page > pages.length) continue;
                 const page = pages[ann.page - 1];
                 const { height } = page.getSize();
+                // Get Page Origin (CropBox/MediaBox)
+                const cropBox = page.getCropBox() || page.getMediaBox();
+                const pageX = cropBox?.x || 0;
+                const pageY = cropBox?.y || 0;
 
                 // Get the appropriate font
                 let font;
@@ -334,11 +338,11 @@ function App() {
                 const ratioX = pageDimensions.width / renderedPageSize.width;
                 const ratioY = pageDimensions.height / renderedPageSize.height;
 
-                // Convert to PDF coordinates (Y=0 at bottom)
-                const pdfX = ann.x * ratioX;
-                // For Y: need to flip using the RENDERED page height, not PDF height
+                // Convert to PDF coordinates
+                const pdfX = pageX + (ann.x * ratioX);
+                // For Y: Top of page is (pageY + height)
                 const renderedY = ann.y;
-                const pdfY = height - (renderedY * ratioY);
+                const pdfY = (pageY + height) - (renderedY * ratioY);
                 const fontSize = ann.fontSize || 16;
 
                 // Calculate dimensions for centering/alignment
@@ -392,6 +396,10 @@ function App() {
                 if (img.page > pages.length) continue;
                 const page = pages[img.page - 1];
                 const { height: pageHeight } = page.getSize();
+                // Get Page Origin
+                const cropBox = page.getCropBox() || page.getMediaBox();
+                const pageX = cropBox?.x || 0;
+                const pageY = cropBox?.y || 0;
 
                 // Embed image
                 const imageBytes = await img.file.arrayBuffer();
@@ -403,9 +411,10 @@ function App() {
                 }
 
                 // Image coordinates are in rendered page space
+                // Use Page Origin offset
                 page.drawImage(pdfImage, {
-                    x: img.x,
-                    y: pageHeight - img.y - img.height,
+                    x: pageX + img.x,
+                    y: (pageY + pageHeight) - img.y - img.height,
                     width: img.width,
                     height: img.height,
                 });
@@ -416,6 +425,10 @@ function App() {
                 if (p.page > pages.length) continue;
                 const page = pages[p.page - 1];
                 const { height: pageHeight } = page.getSize();
+                // Get Page Origin
+                const cropBox = page.getCropBox() || page.getMediaBox();
+                const pageX = cropBox?.x || 0;
+                const pageY = cropBox?.y || 0;
 
                 // p.path is "M x y L x y ..."
                 // Simple regex parsing for MoveTo and LineTo
@@ -429,14 +442,14 @@ function App() {
                     if (cmd === 'M') {
                         const x = parseFloat(commands[i + 1]);
                         const y = parseFloat(commands[i + 2]);
-                        currentX = x;
-                        currentY = pageHeight - y;
+                        currentX = pageX + x;
+                        currentY = (pageY + pageHeight) - y;
                         i += 2;
                     } else if (cmd === 'L') {
                         const x = parseFloat(commands[i + 1]);
                         const y = parseFloat(commands[i + 2]);
-                        const pdfX = x;
-                        const pdfY = pageHeight - y;
+                        const pdfX = pageX + x;
+                        const pdfY = (pageY + pageHeight) - y;
 
                         page.drawLine({
                             start: { x: currentX, y: currentY },
