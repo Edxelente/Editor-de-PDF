@@ -333,9 +333,18 @@ function App() {
                 const ratioX = pageDimensions.width / renderedPageSize.width;
                 const ratioY = pageDimensions.height / renderedPageSize.height;
 
+                //  Debug logging
+                console.log('Annotation:', ann.text);
+                console.log('Stored coords:', ann.x, ann.y);
+                console.log('RenderedPageSize:', renderedPageSize);
+                console.log('PageDimensions:', pageDimensions);
+                console.log('Ratios:', ratioX, ratioY);
+
                 // Convert to PDF coordinates (Y=0 at bottom)
                 const pdfX = ann.x * ratioX;
-                const pdfY = height - (ann.y * ratioY);
+                // For Y: need to flip using the RENDERED page height, not PDF height
+                const renderedY = ann.y; // This is in unscaled rendered space
+                const pdfY = height - (renderedY * ratioY);
                 const fontSize = ann.fontSize || 16;
 
                 page.drawText(ann.text, {
@@ -731,6 +740,7 @@ function DraggableAnnotation({ annotation, scale, onUpdate, onDelete, isEraserAc
                         className="text-xs border border-gray-300 rounded px-1 h-6"
                     >
                         <option value="Helvetica">Helvetica</option>
+                        <option value="Arial">Arial</option>
                         <option value="Times-Roman">Times</option>
                         <option value="Courier">Courier</option>
                     </select>
