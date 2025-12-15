@@ -187,26 +187,17 @@ function App() {
     };
 
     const handlePageClick = (e: React.MouseEvent) => {
-        if (currentTool === 'text' && pageDimensions && renderedPageSize) {
+        if (currentTool === 'text') {
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            // Screen coordinates relative to the rendered page
-            const screenX = e.clientX - rect.left;
-            const screenY = e.clientY - rect.top;
-
-            // Convert screen coordinates to PDF coordinates
-            // renderedPageSize is the actual pixel size of the rendered page
-            // pageDimensions is the PDF page size in points
-            const ratioX = pageDimensions.width / (renderedPageSize.width);
-            const ratioY = pageDimensions.height / (renderedPageSize.height);
-
-            const pdfX = screenX * ratioX;
-            const pdfY = screenY * ratioY;
+            // Store in unscaled screen/rendered coordinates
+            const x = (e.clientX - rect.left) / scale;
+            const y = (e.clientY - rect.top) / scale;
 
             const newAnnotation: Annotation = {
                 id: crypto.randomUUID(),
                 text: 'Texto',
-                x: pdfX,
-                y: pdfY,
+                x, // Rendered page coordinates (unscaled)
+                y, // Rendered page coordinates (unscaled)
                 page: pageNumber,
                 color: '#000000',
                 fontSize: 16,
@@ -335,9 +326,16 @@ function App() {
                     font = await pdfDoc.embedFont(useBold ? StandardFonts.HelveticaBold : StandardFonts.Helvetica);
                 }
 
-                // Coordinates are stored in PDF page space
-                const pdfX = ann.x;
-                const pdfY = height - ann.y;
+                // Convert from screen/rendered coordinates to PDF coordinates
+                // Annotations are stored in rendered page space for easier preview
+                if (!pageDimensions || !renderedPageSize) continue;
+
+                const ratioX = pageDimensions.width / renderedPageSize.width;
+                const ratioY = pageDimensions.height / renderedPageSize.height;
+
+                // Convert to PDF coordinates (Y=0 at bottom)
+                const pdfX = ann.x * ratioX;
+                const pdfY = height - (ann.y * ratioY);
                 const fontSize = ann.fontSize || 16;
 
                 page.drawText(ann.text, {
@@ -428,15 +426,39 @@ function App() {
 
             const pdfBytes = await pdfDoc.save();
             const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob);
 
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = 'edited.pdf';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            // Try to use File System Access API for save dialog
+            if ('showSaveFilePicker' in window) {
+                try {
+                    const handle = await (window as any).showSaveFilePicker({
+                        suggestedName: 'documento.pdf',
+                        types: [{
+                            description: 'PDF Files',
+                            accept: { 'application/pdf': ['.pdf'] }
+                        }]
+                    });
+                    const writable = await handle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                } catch (err: any) {
+                    if (err.name !== 'AbortError') {
+                        console.error('Save failed:', err);
+                        // Fallback to download
+                        downloadFallback(blob);
+                    }
+                }
+            } else {
+                // Fallback: prompt for filename
+                const filename = prompt('Nombre del archivo:', 'documento.pdf') || 'documento.pdf';
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename.endsWith('.pdf') ? filename : filename + '.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }
 
         } catch (e: any) {
             console.error(e);
@@ -444,6 +466,17 @@ function App() {
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const downloadFallback = (blob: Blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'documento.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     return (
